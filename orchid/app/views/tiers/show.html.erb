@@ -1,0 +1,24 @@
+<p id="notice"><%= notice %></p>
+
+<p>
+  <strong>Cart:</strong>
+  <%= @tier.cart %>
+</p>
+
+<p>
+  <strong>Number:</strong>
+  <%= @tier.number %>
+</p>
+
+<p>
+  <strong>Name:</strong>
+  <%= @tier.name %>
+</p>
+
+<p>
+  <strong>Notes:</strong>
+  <%= @tier.notes %>
+</p>
+
+<%= link_to 'Edit', edit_tier_path(@tier) %> |
+<%= link_to 'Back', tiers_path %>
