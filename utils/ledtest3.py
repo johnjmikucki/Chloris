@@ -3,8 +3,9 @@ from time import sleep
 from celery import Celery
 
 
-ON = 0
-OFF = 1
+# updated to account for Darlington arrays
+ON = 1
+OFF = 0
 
 pin_base = 65       # lowest available starting number is 65
 chip1_i2c_addr = 0x21     # A0, A1, A2 pins all wired to GND 

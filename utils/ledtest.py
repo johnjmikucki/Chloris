@@ -5,8 +5,9 @@ import sys
 from celery import Celery
 
 
-ON = 0
-OFF = 1
+# updated to account for Darlington arrays
+ON = 1
+OFF = 0
 
 pin_base = 65       # lowest available starting number is 65
 chip1_i2c_addr = 0x21     # A0, A1, A2 pins all wired to GND 
@@ -46,9 +47,13 @@ try:
     while True:
         for pin in range(80,97):
 		on(pin)
-		sleep(0.5)
+#		sleep(0.5)
+#		off(pin)
+#		sleep(0.5)
+	sleep(30)
+	for pin in range(80,97):
 		off(pin)
-		sleep(0.5)
+		sleep(0.2)
 
 except KeyboardInterrupt:
 	shutdown()
