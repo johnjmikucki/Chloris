@@ -181,6 +181,7 @@ def init_control_plane():
 #    wiringpi.mcp23017Setup(pin_base + 48, chip4_i2c_addr)  # pins 113-128
 
     for pin in range(pin_base, pin_max):
+        wiringpi.pinMode(pin,1) # set to output mode
         set_pin(pin, OFF)
 
     # and then apply our CHANGES
@@ -297,11 +298,11 @@ if not lock.i_am_locking():
         print("unable to acquire ", lock.path, " within 5 seconds.  Aborting...")
         exit(-1)
 
-print(lock.path, ' lock acquired.')
-
 LOG_FILENAME = '/var/log/chloris/daemon'
 logger = logging.getLogger('chloris')
 logger.setLevel(logging.INFO)
+
+logger.info(lock.path, ' lock acquired.')
 
 rfh = RotatingFileHandler(LOG_FILENAME, maxBytes=1000000, backupCount=20)
 rfh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
