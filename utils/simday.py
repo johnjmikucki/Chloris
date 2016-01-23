@@ -127,7 +127,12 @@ def shutdown_board():
         scheduler.shutdown()
     # turn off all pins.
     for pin in range(pin_base, pin_max):
+        wiringpi.pinmode(pin, 0)
+        # set to input mode
+        # this is a safety feature - if left in output mode, pins could be high, low,
+        # etc - relays could be active or not.  input mode prevents them from driving the relays.
         set_pin(pin, OFF)
+
     apply_model(True)
 
 
