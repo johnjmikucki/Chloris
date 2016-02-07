@@ -7,6 +7,7 @@ import pytz
 import logging
 import signal
 from logging.handlers import RotatingFileHandler
+from logging.handlers import SysLogHandler
 from lockfile import LockFile
 from lockfile import LockTimeout
 
@@ -127,7 +128,7 @@ def shutdown_board():
         scheduler.shutdown()
     # turn off all pins.
     for pin in range(pin_base, pin_max):
-        wiringpi.pinmode(pin, 0)
+        wiringpi.pinMode(pin, 0)
         # set to input mode
         # this is a safety feature - if left in output mode, pins could be high, low,
         # etc - relays could be active or not.  input mode prevents them from driving the relays.
@@ -161,7 +162,7 @@ def apply_model(verbose):
                 logstring = logstring + "{0}:{1} ".format(pin_name, state_name)
             wiringpi.digitalWrite(pin, current_state)
             sleep(INTER_PIN_DELAY)
-    if verbose:
+    if verbose or state_updated:
         logger.info(logstring)
     state_updated = False
 
@@ -190,7 +191,7 @@ def init_control_plane():
         set_pin(pin, OFF)
 
     # and then apply our CHANGES
-    apply_model(True)
+    apply_model(False)
     logger.info("Control plane initialized successfully")
 
 
@@ -264,7 +265,7 @@ def init_scheduler():
 
 
 def setup_for_time(t):
-    logger.info("setup for time: ", t)
+    logger.info("setup for time: {0}".format(t))
     scheduler.print_jobs()
     for job in scheduler.get_jobs():
         if job.next_run_time.time() <= t.time():
@@ -293,6 +294,17 @@ def shutdown():
     logging.shutdown()
     exit()
 
+
+def log_state(boo):
+    logstring = ""
+    for pin in sorted(pin_state.keys()):
+        current_state = pin_state.get(pin)
+        pin_name = pin_names.get(pin)
+        state_name = state_names[current_state]
+        if pin != "default":
+            logstring = logstring + "{0}:{1} ".format(pin_name, state_name)
+    logger.info(logstring)
+
 interval = 5
 
 lock = LockFile("/var/run/chloris.pid")
@@ -314,6 +326,11 @@ rfh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(m
 
 logger.addHandler(rfh)
 
+slh = SysLogHandler('/dev/log')
+slh.setFormatter(logging.Formatter('chloris: %(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+logger.addHandler(slh)
+
 signal.signal(signal.SIGQUIT, receive_signal)
 signal.signal(signal.SIGINT, receive_signal)
 signal.signal(signal.SIGTERM, receive_signal)
@@ -324,11 +341,16 @@ try:
     init_control_plane()
     init_scheduler()
     setup_for_current_time()
+    scheduler.add_job(apply_model, args=[True], name='startup_instant_grat')  # do it do it now
     logger.info("Setup complete")
+
     # enforce relays are in modeled state every minute
-    scheduler.add_job(apply_model, args=[True], trigger='cron', name='apply_model', minute='*', timezone=utc,
-                      misfire_grace_time=5)
-    scheduler.add_job(apply_model, args=[True], name='startup_instant_grat') # do it do it now
+    scheduler.add_job(apply_model, args=[False], trigger='cron', name='apply_model',
+                      minute='*', timezone=utc, misfire_grace_time=5)
+
+    scheduler.add_job(log_state, args=[True], trigger='cron', name='log_state_hourly',
+                      hour='*', timezone=utc, misfire_grace_time=5)
+
     while True:
         sleep(600)
 except KeyboardInterrupt:
