@@ -23,6 +23,9 @@ pin_base = 65  # lowest available starting number is 65
 pin_max = pin_base + (1 * 16)  # max pin is min pin plus (16 pins per MCP23017 chip * 2 such chips)
 INTER_PIN_DELAY=0.2
 
+PIN_MODES = {0: "INPUT", 1: "OUTPUT", 2: "ALT5", 3: "ALT4", 4: "ALT0", 5: "ALT1", 6: "ALT2", 7: "ALT3"}
+
+
 #### BOARD-SPECIFIC CONSTANTS
 RELAY_01 = UNUSED_1 = 81  # unused
 RELAY_02 = UNUSED_2 = 82  # unused
@@ -47,6 +50,9 @@ MAIN_LIGHTS = [DRIVER1, LO_VOLT_1, LO_VOLT_2]
 SUPP_LIGHTS = [SUPP_LIGHT_1, SUPP_LIGHT_2]  # I/O pins controlling relays for supplemental light outlets
 
 scheduler = BackgroundScheduler()
+
+PIN_MODE_SAFE = 0
+PIN_MODE_ACTIVE = 1
 
 pin_state = {}
 # pin_state.setdefault("default", OFF)
@@ -128,26 +134,46 @@ def shutdown_board():
         scheduler.shutdown()
     # turn off all pins.
     for pin in range(pin_base, pin_max):
-        wiringpi.pinMode(pin, 0)
-        # set to input mode
-        # this is a safety feature - if left in output mode, pins could be high, low,
-        # etc - relays could be active or not.  input mode prevents them from driving the relays.
         set_pin(pin, OFF)
 
+    state_updated = True
+
     apply_model(True)
+
+    # set to input mode
+    # this is a safety feature - if left in output mode, pins could be high, low,
+    # etc - relays could be active or not.  input mode prevents them from driving the relays.
+    for pin in range(pin_base, pin_max):
+        wiringpi.pinMode(pin, PIN_MODE_SAFE)
 
 
 def set_pin(pin, state):
     global state_updated
+    s = None
     try:
-        if state != pin_state[pin]:
-            state_updated = True
+        s = pin_state[pin]
     except KeyError:
-        state_updated = True
+        logger.debug("pin {0} had no state.  Initializing?".format(pin))
+
+    if wiringpi.getAlt(pin) != PIN_MODE_ACTIVE:
+        logger.warn(
+            'Attempting to set output value on NON-ACTIVE pin {0} (mode: {1}).  Forcing to OUTPUT and setting...'.format(
+                pin,
+                PIN_MODES.get(wiringpi.getAlt(pin))))
+        wiringpi.pinMode(pin, PIN_MODE_ACTIVE)
+
     pin_state[pin] = state
+    if s == state:
+        state_updated = False
+    else:
+        state_updated = True
+
     name = pin_names.get(pin)
     if name is not None:
-        logger.info("{0} -> {1}".format(name, state_names[pin_state.get(pin)]))
+        n = name
+    else:
+        n = "Pin_{0}".format(pin)
+    logger.info("{0} -> {1}".format(n, state_names[pin_state.get(pin)]))
 
 
 def apply_model(verbose):
@@ -187,8 +213,15 @@ def init_control_plane():
 #    wiringpi.mcp23017Setup(pin_base + 48, chip4_i2c_addr)  # pins 113-128
 
     for pin in range(pin_base, pin_max):
-        wiringpi.pinMode(pin,1) # set to output mode
         set_pin(pin, OFF)
+        wiringpi.pinMode(pin, PIN_MODE_ACTIVE)  # set to output mode
+
+    sleep(1)
+
+    for pin in range(pin_base, pin_max):
+        mode = wiringpi.getAlt(pin)
+        if mode != PIN_MODE_ACTIVE:
+            logger.error("Initialized pin {0} to mode {1} but found it in mode {2}".format(pin, PIN_MODE_ACTIVE, mode))
 
     # and then apply our CHANGES
     apply_model(False)
@@ -197,21 +230,15 @@ def init_control_plane():
 
 def set_main_lights(state): set_pins(MAIN_LIGHTS, state)
 
-
 def set_supp_lights(state): set_pins(SUPP_LIGHTS, state)
-
 
 def set_main_fan(state): set_pin(MAIN_EXHAUST, state)
 
-
 def set_supp_fan(state): set_pin(SUPP_EXHAUST, state)
-
 
 def set_mist(state): set_pin(MIST_PUMP, state)
 
-
 def set_tier_fans(state): set_pin(TIER_FANS, state)
-
 
 def mist(on):
     set_tier_fans(not on)  # turn fans off/on
@@ -285,14 +312,18 @@ def receive_signal(signum, stack):
 def shutdown():
     logger.info("Shutting down...")
     l = Lock()
-    l.acquire()
-    logger.info("Shutdown isolation lock acquired.  Shutting down...")
-    shutdown_board()
-    lock.release()
-    logger.info("released ", lock.path)
-    logger.info("Chloris daemon terminating.")
-    logging.shutdown()
-    exit()
+    try:
+        l.acquire()
+        logger.info("Shutdown isolation lock acquired.  Shutting down...")
+        shutdown_board()
+        lock.release()
+        logger.info("released ", lock.path)
+
+        logger.info("Chloris daemon terminating.")
+        logging.shutdown()
+        exit()
+    except:
+        logger.info("Unable to acquire shutdown isolation lock; shutdown alreadu in progress.")
 
 
 def log_state(boo):
